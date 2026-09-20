@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Mushak: The Modak Mission+</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  margin:0; min-height:100vh; font-family:system-ui,-apple-system,Segoe UI,sans-serif;
+  background:radial-gradient(circle at 50% 10%,#173a29 0,#071613 45%,#03100d 100%);
+  color:#fff; display:flex; justify-content:center; overflow:hidden;
+}
+.app{width:min(520px,100vw); padding:14px 12px 18px; text-align:center}
+h1{font-size:22px;margin:4px 0 2px;color:#ffd66b;text-shadow:0 2px 8px #000}
+.sub{font-size:12px;color:#b7d2c3;margin-bottom:10px}
+.hud{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:8px}
+.stat{background:#10271e;border:1px solid #345a45;border-radius:10px;padding:7px 3px;font-size:12px}
+.stat b{display:block;color:#ffd66b;font-size:15px}
+#board{
+  width:min(94vw,470px); aspect-ratio:1/1; margin:auto; position:relative;
+  border:4px solid #8a6a2e;border-radius:15px; overflow:hidden;
+  background-color:#17351e;
+  background-image:
+   linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),
+   linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);
+  background-size:10% 10%;
+  box-shadow:0 0 25px rgba(255,196,65,.16),inset 0 0 25px rgba(0,0,0,.35);
+}
+.cell{position:absolute;width:10%;height:10%;display:flex;align-items:center;justify-content:center;font-size:25px;transition:left .12s,top .12s}
+.wall{background:#2d2117;border:2px solid #4a3624;box-shadow:inset 0 0 8px #000;border-radius:3px}
+.entity{filter:drop-shadow(0 2px 2px #000)}
+.player{font-size:28px;z-index:5}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.66);display:flex;align-items:center;justify-content:center;padding:22px;z-index:20}
+.card{max-width:390px;background:#fff2c9;color:#4c3018;border:4px solid #e8b94d;border-radius:20px;padding:20px;box-shadow:0 12px 50px #000}
+.card h2{margin:0 0 10px;color:#9b5a1e}
+.card p{font-size:14px;line-height:1.45}
+button{border:0;border-radius:14px;padding:12px 20px;background:linear-gradient(#ffd86b,#e9a92e);color:#54300d;font-weight:800;font-size:16px;box-shadow:0 4px 0 #a36b18;cursor:pointer}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 #a36b18}
+.controls{margin:12px auto 0;width:210px;display:grid;grid-template-columns:repeat(3,64px);gap:7px;justify-content:center}
+.controls button{width:64px;height:52px;padding:0;font-size:23px}
+.blank{visibility:hidden}
+#message{height:25px;color:#ffd66b;font-size:13px;margin-top:8px;font-weight:700}
+.legend{font-size:11px;color:#a7c2b3;margin-top:4px;line-height:1.5}
+.flash{animation:flash .35s}
+@keyframes flash{50%{filter:brightness(2)}}
+.shake{animation:shake .25s}
+@keyframes shake{25%{transform:translateX(-5px)}50%{transform:translateX(5px)}75%{transform:translateX(-3px)}}
+@media(max-height:700px){.app{padding-top:4px}h1{font-size:19px}.sub{margin-bottom:5px}.controls{margin-top:6px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>🐭 Mushak: The Modak Mission+</h1>
+  <div class="sub">Collect the modaks • dodge traps • reach Ganpati Bappa 🙏</div>
+  <div class="hud">
+    <div class="stat">🍯 Modaks <b id="score">0/12</b></div>
+    <div class="stat">❤️ Lives <b id="lives">3</b></div>
+    <div class="stat">⏱️ Time <b id="time">75</b></div>
+    <div class="stat">⭐ Level <b id="level">1</b></div>
+  </div>
+  <div id="board"></div>
+  <div id="message">Use the buttons or keyboard arrows.</div>
+  <div class="controls">
+    <button class="blank">•</button><button data-dir="up">⬆️</button><button class="blank">•</button>
+    <button data-dir="left">⬅️</button><button data-dir="down">⬇️</button><button data-dir="right">➡️</button>
+  </div>
+  <div class="legend">💣 bomb = lose life • 🧊 ice = slide • 🕳️ trap = lose life • 🌀 portal = teleport • ⚡ = speed boost • 🛡️ = shield</div>
+</div>
+
+<div class="modal" id="modal">
+ <div class="card">
+   <h2>🙏 Ganpati Bappa Morya!</h2>
+   <p><b>Mushak needs your help!</b><br>
+   Collect all <b>12 modaks</b> and reach the Ganpati idol before time runs out.</p>
+   <p>New obstacles make it trickier: moving bombs, ice tiles, trap holes, teleport portals and power-ups. You have <b>3 lives</b>.</p>
+   <button id="start">▶️ Start Mission</button>
+ </div>
+</div>
+
+<script>
+const N=10;
+const board=document.getElementById('board');
+const scoreEl=document.getElementById('score'), livesEl=document.getElementById('lives'),
+timeEl=document.getElementById('time'), levelEl=document.getElementById('level'), msg=document.getElementById('message');
+
+let game, timer, bombTimer, started=false;
+
+const levels=[
+ {modaks:12, time:75, walls:[[2,2],[3,2],[4,2],[6,2],[7,2],[8,2],[1,4],[2,4],[4,4],[5,4],[7,4],[2,7],[3,7],[5,7],[6,7],[8,7],[4,9],[5,9],[6,9]],
+  bombs:[[3,3],[5,3],[8,6],[1,6]], ice:[[1,3],[7,6],[9,2]], holes:[[5,5],[9,7]], portals:[[0,9],[9,0]], boost:[6,6], shield:[8,8], idol:[9,9], start:[0,0]},
+ {modaks:15, time:80, walls:[[1,1],[2,1],[4,1],[5,1],[7,1],[8,1],[2,3],[3,3],[6,3],[7,3],[1,5],[3,5],[4,5],[6,5],[8,5],[1,7],[2,7],[5,7],[6,7],[8,7],[4,9],[7,9]],
+  bombs:[[4,2],[8,2],[5,4],[2,6],[7,6]], ice:[[0,4],[4,6],[9,4],[6,8]], holes:[[2,2],[9,6],[5,8]], portals:[[0,9],[9,0],[9,5],[0,5]], boost:[3,8], shield:[7,4], idol:[9,9], start:[0,0]}
+];
+
+function pos(x,y){return {left:(x*10)+'%',top:(y*10)+'%'}}
+function key(x,y){return x+','+y}
+function inside(x,y){return x>=0&&x<N&&y>=0&&y<N}
+function occupied(x,y){
+ return game.walls.has(key(x,y)) || (game.player.x===x&&game.player.y===y);
+}
+function draw(){
+ board.innerHTML='';
+ // decorative grass dots
+ for(let i=0;i<35;i++){
+   const d=document.createElement('div'); d.style.position='absolute'; d.style.left=(Math.random()*98)+'%'; d.style.top=(Math.random()*98)+'%'; d.style.fontSize='8px'; d.style.opacity='.22'; d.textContent='✦'; board.appendChild(d);
+ }
+ for(const k of game.walls){let [x,y]=k.split(',').map(Number); make('🧱',x,y,'wall')}
+ game.modaks.forEach(m=>make('🍯',m.x,m.y,'entity'));
+ game.ice.forEach(k=>{let [x,y]=k.split(',').map(Number);make('🧊',x,y,'entity')});
+ game.holes.forEach(k=>{let [x,y]=k.split(',').map(Number);make('🕳️',x,y,'entity')});
+ game.portals.forEach((p,i)=>make(i%2?'🌀':'🌀',p.x,p.y,'entity'));
+ game.bombs.forEach(b=>make('💣',b.x,b.y,'entity bomb'));
+ if(game.boost) make('⚡',game.boost.x,game.boost.y,'entity');
+ if(game.shield) make('🛡️',game.shield.x,game.shield.y,'entity');
+ make('🙏',game.idol.x,game.idol.y,'entity');
+ make('🐭',game.player.x,game.player.y,'player');
+ scoreEl.textContent=game.collected+'/'+game.target;
+ livesEl.textContent=game.lives;
+ timeEl.textContent=game.time;
+ levelEl.textContent=game.level;
+}
+function make(text,x,y,cls){
+ const e=document.createElement('div');e.className='cell '+cls;e.textContent=text;Object.assign(e.style,pos(x,y));board.appendChild(e);
+}
+function randomFree(){
+ for(let n=0;n<500;n++){
+  const x=Math.floor(Math.random()*N),y=Math.floor(Math.random()*N),k=key(x,y);
+  if(game.walls.has(k)||game.modaks.some(m=>m.x===x&&m.y===y)||game.bombs.some(b=>b.x===x&&b.y===y)||game.holes.has(k)||game.ice.has(k)||game.portals.some(p=>p.x===x&&p.y===y)|| (x===game.player.x&&y===game.player.y) || (x===game.idol.x&&y===game.idol.y)) continue;
+  return {x,y};
+ }
+}
+function setup(level=1){
+ const L=levels[Math.min(level-1,levels.length-1)];
+ game={level,target:L.modaks,collected:0,lives:3,time:L.time,walls:new Set(L.walls.map(a=>key(...a))),
+  bombs:L.bombs.map(a=>({x:a[0],y:a[1]})),ice:new Set(L.ice.map(a=>key(...a))),holes:new Set(L.holes.map(a=>key(...a))),
+  portals:L.portals.map(a=>({x:a[0],y:a[1]})),boost:{x:L.boost[0],y:L.boost[1]},shield:{x:L.shield[0],y:L.shield[1]},
+  idol:{x:L.idol[0],y:L.idol[1]},player:{x:L.start[0],y:L.start[1]},protected:0};
+ game.modaks=[]; while(game.modaks.length<game.target){let p=randomFree();game.modaks.push(p)}
+ draw();
+ msg.textContent='Collect the modaks and watch the moving bombs!';
+}
+function hit(reason){
+ if(game.protected>0){game.protected--;msg.textContent='🛡️ Shield blocked '+reason+'!';return false}
+ game.lives--;game.protected=1;
+ board.classList.add('shake');setTimeout(()=>board.classList.remove('shake'),260);
+ msg.textContent='💥 '+reason+'! Life lost.';
+ if(game.lives<=0){end(false,'Oh no! Mushak ran out of lives.');return true}
+ game.player={x:0,y:0}; draw(); return true;
+}
+function move(dx,dy){
+ if(!started)return;
+ let nx=game.player.x+dx,ny=game.player.y+dy;
+ if(!inside(nx,ny)){msg.textContent='🚧 You cannot go that way!';return}
+ if(game.walls.has(key(nx,ny))){msg.textContent='🧱 Blocked! Find another route.';return}
+ game.player={x:nx,y:ny};
+ const k=key(nx,ny);
+ // modak
+ const mi=game.modaks.findIndex(m=>m.x===nx&&m.y===ny);
+ if(mi>=0){game.modaks.splice(mi,1);game.collected++;msg.textContent='🍯 Modak collected!';board.classList.add('flash');setTimeout(()=>board.classList.remove('flash'),350)}
+ // ice slide
+ if(game.ice.has(k)){
+   msg.textContent='🧊 Slippery! Mushak slides!';
+   const sx=dx,sy=dy; let guard=0;
+   while(inside(game.player.x+sx,game.player.y+sy)&&!game.walls.has(key(game.player.x+sx,game.player.y+sy))&&guard++<5){
+     game.player.x+=sx;game.player.y+=sy;
+     const mm=game.modaks.findIndex(m=>m.x===game.player.x&&m.y===game.player.y);
+     if(mm>=0){game.modaks.splice(mm,1);game.collected++}
+   }
+ }
+ if(game.holes.has(k)) hit('Trap hole');
+ // portal
+ const pi=game.portals.findIndex(p=>p.x===nx&&p.y===ny);
+ if(pi>=0){const dest=game.portals[pi%2===0?pi+1:pi-1];if(dest){game.player={x:dest.x,y:dest.y};msg.textContent='🌀 Teleported!'}}
+ if(game.boost && game.player.x===game.boost.x&&game.player.y===game.boost.y){game.boost=null;game.time+=10;msg.textContent='⚡ Speed boost! +10 seconds';}
+ if(game.shield && game.player.x===game.shield.x&&game.player.y===game.shield.y){game.shield=null;game.protected=3;msg.textContent='🛡️ Shield acquired!'}
+ if(game.player.x===game.idol.x&&game.player.y===game.idol.y){
+   if(game.collected>=game.target){
+     if(game.level<2){started=false;clearInterval(timer);clearInterval(bombTimer);showLevel2()}
+     else end(true,'🎉 Mission complete! Ganpati Bappa Morya!');
+     return;
+   } else msg.textContent='🙏 Collect all the modaks first!';
+ }
+ draw();
+}
+function moveBombs(){
+ if(!started)return;
+ game.bombs.forEach(b=>{
+   const choices=[[1,0],[-1,0],[0,1],[0,-1]].sort(()=>Math.random()-.5);
+   for(const [dx,dy] of choices){
+     const x=b.x+dx,y=b.y+dy;
+     if(inside(x,y)&&!game.walls.has(key(x,y))&&!(x===game.idol.x&&y===game.idol.y)){
+       b.x=x;b.y=y;break;
+     }
+   }
+   if(b.x===game.player.x&&b.y===game.player.y) hit('A moving bomb hit you');
+ });
+ draw();
+}
+function startGame(){
+ document.getElementById('modal').style.display='none';started=true;setup(1);
+ clearInterval(timer);clearInterval(bombTimer);
+ timer=setInterval(()=>{if(!started)return;game.time--;draw();if(game.time<=0)end(false,'⏰ Time is up!');},1000);
+ bombTimer=setInterval(moveBombs,850);
+}
+function showLevel2(){
+ const m=document.getElementById('modal');m.innerHTML='<div class="card"><h2>🔥 Level 2 Unlocked!</h2><p>The maze is harder now: more bombs, traps, ice and portals.</p><button id="next">🚀 Enter Level 2</button></div>';m.style.display='flex';
+ document.getElementById('next').onclick=()=>{m.style.display='none';started=true;setup(2);timer=setInterval(()=>{game.time--;draw();if(game.time<=0)end(false,'⏰ Time is up!')},1000);bombTimer=setInterval(moveBombs,700)}
+}
+function end(win,text){
+ started=false;clearInterval(timer);clearInterval(bombTimer);
+ const m=document.getElementById('modal');m.innerHTML='<div class="card"><h2>'+text+'</h2><p>You collected <b>'+game.collected+'</b> modaks on Level '+game.level+'.</p><button id="again">🔄 Play Again</button></div>';m.style.display='flex';
+ document.getElementById('again').onclick=()=>{m.style.display='none';startGame()}
+}
+document.querySelectorAll('[data-dir]').forEach(b=>b.addEventListener('click',()=>{const d=b.dataset.dir;move(d==='left'?-1:d==='right'?1:0,d==='up'?-1:d==='down'?1:0)}));
+document.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))e.preventDefault(); if(e.key==='ArrowUp'||e.key==='w')move(0,-1);if(e.key==='ArrowDown'||e.key==='s')move(0,1);if(e.key==='ArrowLeft'||e.key==='a')move(-1,0);if(e.key==='ArrowRight'||e.key==='d')move(1,0)});
+document.getElementById('start').onclick=startGame;
+</script>
+</body>
+</html>
